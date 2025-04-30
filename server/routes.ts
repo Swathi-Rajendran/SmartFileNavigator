@@ -11,10 +11,10 @@ import { z } from "zod";
 // Setup multer for file uploads
 const upload = multer({
   storage: multer.diskStorage({
-    destination: (req, file, cb) => {
+    destination: (req: Express.Request, file: Express.Multer.File, cb: (error: Error | null, destination: string) => void) => {
       cb(null, 'temp-uploads/');
     },
-    filename: (req, file, cb) => {
+    filename: (req: Express.Request, file: Express.Multer.File, cb: (error: Error | null, filename: string) => void) => {
       cb(null, `${Date.now()}-${file.originalname}`);
     }
   }),
@@ -86,7 +86,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Upload file
-  app.post('/api/files/upload', upload.single('file'), async (req, res) => {
+  app.post('/api/files/upload', upload.single('file'), async (req: Request & { file?: Express.Multer.File }, res: Response) => {
     try {
       const file = req.file;
       if (!file) {
