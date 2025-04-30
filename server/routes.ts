@@ -66,7 +66,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get file by ID
-  app.get('/api/files/:id', async (req, res) => {
+  app.get('/api/files/:id([0-9]+)', async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
@@ -112,7 +112,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Delete file
-  app.delete('/api/files/:id', async (req, res) => {
+  app.delete('/api/files/:id([0-9]+)', async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {

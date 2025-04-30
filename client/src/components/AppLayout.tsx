@@ -41,28 +41,28 @@ export default function AppLayout({ children }: AppLayoutProps) {
           <nav className="p-3 flex-1">
             <div className="space-y-1">
               <Link href="/">
-                <a className={`flex items-center px-3 py-2 text-sm font-medium rounded-lg ${
+                <div className={`flex items-center px-3 py-2 text-sm font-medium rounded-lg cursor-pointer ${
                   location === '/' ? 'bg-primary-50 text-primary-700' : 'text-neutral-700 hover:bg-neutral-100'
                 }`}>
                   <Search className="mr-3 h-4 w-4 text-primary-600" />
                   Search
-                </a>
+                </div>
               </Link>
               <Link href="/files">
-                <a className={`flex items-center px-3 py-2 text-sm font-medium rounded-lg ${
+                <div className={`flex items-center px-3 py-2 text-sm font-medium rounded-lg cursor-pointer ${
                   location === '/files' ? 'bg-primary-50 text-primary-700' : 'text-neutral-700 hover:bg-neutral-100'
                 }`}>
                   <FileText className="mr-3 h-4 w-4 text-neutral-500" />
                   My Files
-                </a>
+                </div>
               </Link>
               <Link href="/history">
-                <a className={`flex items-center px-3 py-2 text-sm font-medium rounded-lg ${
+                <div className={`flex items-center px-3 py-2 text-sm font-medium rounded-lg cursor-pointer ${
                   location === '/history' ? 'bg-primary-50 text-primary-700' : 'text-neutral-700 hover:bg-neutral-100'
                 }`}>
                   <History className="mr-3 h-4 w-4 text-neutral-500" />
                   Recent Searches
-                </a>
+                </div>
               </Link>
             </div>
             
@@ -72,7 +72,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
               </h3>
               <div className="mt-2 space-y-1">
                 <Link href="/files?type=document">
-                  <a className="flex items-center justify-between px-3 py-2 text-sm font-medium rounded-lg text-neutral-700 hover:bg-neutral-100">
+                  <div className="flex items-center justify-between px-3 py-2 text-sm font-medium rounded-lg text-neutral-700 hover:bg-neutral-100 cursor-pointer">
                     <div className="flex items-center">
                       <FileText className="mr-3 h-4 w-4 text-neutral-500" />
                       Documents
@@ -80,10 +80,10 @@ export default function AppLayout({ children }: AppLayoutProps) {
                     <span className="text-xs bg-neutral-100 text-neutral-600 py-1 px-2 rounded-full">
                       {fileCounts?.document || 0}
                     </span>
-                  </a>
+                  </div>
                 </Link>
                 <Link href="/files?type=image">
-                  <a className="flex items-center justify-between px-3 py-2 text-sm font-medium rounded-lg text-neutral-700 hover:bg-neutral-100">
+                  <div className="flex items-center justify-between px-3 py-2 text-sm font-medium rounded-lg text-neutral-700 hover:bg-neutral-100 cursor-pointer">
                     <div className="flex items-center">
                       <Image className="mr-3 h-4 w-4 text-neutral-500" />
                       Images
@@ -91,10 +91,10 @@ export default function AppLayout({ children }: AppLayoutProps) {
                     <span className="text-xs bg-neutral-100 text-neutral-600 py-1 px-2 rounded-full">
                       {fileCounts?.image || 0}
                     </span>
-                  </a>
+                  </div>
                 </Link>
                 <Link href="/files?type=video">
-                  <a className="flex items-center justify-between px-3 py-2 text-sm font-medium rounded-lg text-neutral-700 hover:bg-neutral-100">
+                  <div className="flex items-center justify-between px-3 py-2 text-sm font-medium rounded-lg text-neutral-700 hover:bg-neutral-100 cursor-pointer">
                     <div className="flex items-center">
                       <Film className="mr-3 h-4 w-4 text-neutral-500" />
                       Videos
@@ -102,7 +102,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
                     <span className="text-xs bg-neutral-100 text-neutral-600 py-1 px-2 rounded-full">
                       {fileCounts?.video || 0}
                     </span>
-                  </a>
+                  </div>
                 </Link>
               </div>
             </div>
@@ -157,37 +157,37 @@ export default function AppLayout({ children }: AppLayoutProps) {
           <nav className="p-3 flex-1">
             <div className="space-y-1">
               <Link href="/">
-                <a 
-                  className={`flex items-center px-3 py-2 text-sm font-medium rounded-lg ${
+                <div 
+                  className={`flex items-center px-3 py-2 text-sm font-medium rounded-lg cursor-pointer ${
                     location === '/' ? 'bg-primary-50 text-primary-700' : 'text-neutral-700 hover:bg-neutral-100'
                   }`}
                   onClick={() => setMobileSidebarOpen(false)}
                 >
                   <Search className="mr-3 h-4 w-4 text-primary-600" />
                   Search
-                </a>
+                </div>
               </Link>
               <Link href="/files">
-                <a 
-                  className={`flex items-center px-3 py-2 text-sm font-medium rounded-lg ${
+                <div 
+                  className={`flex items-center px-3 py-2 text-sm font-medium rounded-lg cursor-pointer ${
                     location === '/files' ? 'bg-primary-50 text-primary-700' : 'text-neutral-700 hover:bg-neutral-100'
                   }`}
                   onClick={() => setMobileSidebarOpen(false)}
                 >
                   <FileText className="mr-3 h-4 w-4 text-neutral-500" />
                   My Files
-                </a>
+                </div>
               </Link>
               <Link href="/history">
-                <a 
-                  className={`flex items-center px-3 py-2 text-sm font-medium rounded-lg ${
+                <div 
+                  className={`flex items-center px-3 py-2 text-sm font-medium rounded-lg cursor-pointer ${
                     location === '/history' ? 'bg-primary-50 text-primary-700' : 'text-neutral-700 hover:bg-neutral-100'
                   }`}
                   onClick={() => setMobileSidebarOpen(false)}
                 >
                   <History className="mr-3 h-4 w-4 text-neutral-500" />
                   Recent Searches
-                </a>
+                </div>
               </Link>
             </div>
             
@@ -197,8 +197,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
               </h3>
               <div className="mt-2 space-y-1">
                 <Link href="/files?type=document">
-                  <a 
-                    className="flex items-center justify-between px-3 py-2 text-sm font-medium rounded-lg text-neutral-700 hover:bg-neutral-100"
+                  <div 
+                    className="flex items-center justify-between px-3 py-2 text-sm font-medium rounded-lg text-neutral-700 hover:bg-neutral-100 cursor-pointer"
                     onClick={() => setMobileSidebarOpen(false)}
                   >
                     <div className="flex items-center">
@@ -208,11 +208,11 @@ export default function AppLayout({ children }: AppLayoutProps) {
                     <span className="text-xs bg-neutral-100 text-neutral-600 py-1 px-2 rounded-full">
                       {fileCounts?.document || 0}
                     </span>
-                  </a>
+                  </div>
                 </Link>
                 <Link href="/files?type=image">
-                  <a 
-                    className="flex items-center justify-between px-3 py-2 text-sm font-medium rounded-lg text-neutral-700 hover:bg-neutral-100"
+                  <div 
+                    className="flex items-center justify-between px-3 py-2 text-sm font-medium rounded-lg text-neutral-700 hover:bg-neutral-100 cursor-pointer"
                     onClick={() => setMobileSidebarOpen(false)}
                   >
                     <div className="flex items-center">
@@ -222,11 +222,11 @@ export default function AppLayout({ children }: AppLayoutProps) {
                     <span className="text-xs bg-neutral-100 text-neutral-600 py-1 px-2 rounded-full">
                       {fileCounts?.image || 0}
                     </span>
-                  </a>
+                  </div>
                 </Link>
                 <Link href="/files?type=video">
-                  <a 
-                    className="flex items-center justify-between px-3 py-2 text-sm font-medium rounded-lg text-neutral-700 hover:bg-neutral-100"
+                  <div 
+                    className="flex items-center justify-between px-3 py-2 text-sm font-medium rounded-lg text-neutral-700 hover:bg-neutral-100 cursor-pointer"
                     onClick={() => setMobileSidebarOpen(false)}
                   >
                     <div className="flex items-center">
@@ -236,7 +236,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
                     <span className="text-xs bg-neutral-100 text-neutral-600 py-1 px-2 rounded-full">
                       {fileCounts?.video || 0}
                     </span>
-                  </a>
+                  </div>
                 </Link>
               </div>
             </div>
