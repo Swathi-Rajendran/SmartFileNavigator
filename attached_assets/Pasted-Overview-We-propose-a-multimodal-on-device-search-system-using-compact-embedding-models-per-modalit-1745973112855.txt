@@ -1,0 +1,100 @@
+Overview
+
+We propose a multimodal on-device search system using compact embedding models per modality and a local vector database.  In this design, text queries are embedded by a lightweight text encoder, and each file (document, image, video) is pre‑indexed into the same semantic vector space.  For text files (TXT, PDF) we extract the content and embed it with a small sentence-embedding model; for images we embed them with a lightweight vision-text model; and for videos we extract representative keyframes and embed those.  All embeddings are stored locally (e.g. in FAISS/HNSWlib or ObjectBox) for fast nearest‑neighbor search.  At query time, the user’s text query is embedded and used to retrieve the top-N closest file embeddings.  This cross-modal embedding approach means a text query can directly find related documents, images, or videos in one shared space.
+
+Below we detail the model choices, indexing pipeline, and system architecture (backend and UI).  We emphasize lightweight (sub-100M) models suitable for mobile/embedded use, and open-source tools.
+
+Embedding Models per Modality
+
+We use specialized small models for text and images (the video case reuses the image model):
+	•	Text (Sentence Embeddings):  We use a compact Transformer-based encoder such as all-MiniLM-L6-v2 (384‑dim output, ~22 M parameters) ￼ ￼.  This 6-layer DistilBERT-derived model maps sentences or paragraphs into 384‑dim vectors ￼, capturing semantic meaning efficiently.  It is open‑source (Apache 2.0) and has PyTorch/ONNX/TFLite variants for on-device use.  Another option is E5-small-v2 (12 layers, 384‑dim, MIT license) ￼, which likewise outputs 384‑d embeddings.  Both can be converted to ONNX or TF‑Lite for mobile (e.g. via HuggingFace Optimum).  These models have outperformed earlier 100‑dim on‑device embedders (e.g. USE) in retrieval tasks ￼ ￼.
+	•	Image/Text (Vision-Text Embeddings):  For images (and to align with text), we use MobileCLIP – an efficient CLIP-like model optimized for speed.  For example, MobileCLIP-S0 is an Apple CVPR’24 model whose image encoder is only 11.4M parameters and text encoder 42.4M (total ~53.8M) ￼.  Despite its small size, MobileCLIP-S0 “obtains similar zero-shot performance as OpenAI’s ViT-B/16 while being 4.8× faster and 2.8× smaller” ￼.  Its output embeddings (typically 512–768 d) live in a shared space for image and text.  Larger variants (S1, S2) trade size for a bit more accuracy.  The checkpoint and model card are available on HuggingFace (Apple license) ￼.  Because MobileCLIP aligns images and text, a text query will retrieve semantically related images.
+	•	Video:  We treat videos by frame sampling.  The workflow is to split each video into scenes/keyframes and use the image encoder on those frames ￼.  For example, detect scene boundaries (via ContentDetector or fixed intervals), then sample a few frames per scene ￼ ￼.  Each sampled frame is embedded with the same MobileCLIP image model, producing vectors.  One can either store all frame embeddings (tagged by video ID) or aggregate them per video (e.g. average).  In either case, a text query will match the most relevant frame(s) and thus the containing video.  (See Guy Ross’s CLIP-based video search pipeline for reference: split video → sample frames → embed frames → index ￼.)
+
+Each selected model is open-source and small enough for on-device use.  For example, MiniLM-L6-v2 (17M weights) and E5-small (12 layers) can run on modern phones, and MobileCLIP-S0 (≈54M) is specifically designed for mobile inference ￼ ￼. We summarize key models below:
+
+Modality	Model (variant)	Params (M)	Output Dim	License	References / Format
+Text	all-MiniLM-L6-v2	~17–22 (total)	384	Apache 2.0 ￼	HuggingFace (PyTorch, ONNX, TFLite)
+(embedding)	E5-small-v2	~12 (est)*	384	MIT ￼	HF (PyTorch, ONNX)
+Image	MobileCLIP-S0	11.4 (img) + 42.4 (txt) = 53.8	512–768?	Apple-amlr ￼	HF (PyTorch)
+(shared)	MobileCLIP-S1	21.5 + 63.4 = 84.9	512–768	Apple-amlr	HF (PyTorch)
+Video	Keyframe embedding	(as image)	(as image)	–	(see image model)
+
+*Param count estimated (E5 uses 12-layer BERT-base-like architecture).
+
+All text and image models can be exported to ONNX/TFLite or run via PyTorch Mobile for on-device use ￼.  For example, one can use HuggingFace’s Optimum CLI to convert to ONNX, and then use ONNX Runtime or TF Lite in Android/iOS.  In a Python backend, we can run them with Transformers.
+
+Indexing Pipeline
+	1.	Text files (TXT, PDF): Extract and preprocess text from each document (e.g. using PyMuPDF or PDFMiner for PDF). Optionally chunk long documents into paragraphs or pages to capture more context.  Feed each chunk to the text embedding model (e.g. MiniLM/E5) to get a 384-d vector.  Store each vector along with file ID and offset.  (Alternatively, one could average vectors for an entire doc, but chunking yields better relevance.)
+	2.	Image files: For each image, run the image encoder (MobileCLIP) to obtain its embedding.  If images are large, resize to model’s input (e.g. 224×224) before embedding. Store each image vector with file reference.
+	3.	Video files: Use a video processing library (e.g. OpenCV or ffmpeg) to sample frames.  A good approach is scene detection or fixed-interval sampling – e.g. detect scene changes with scenedetect or simply take 1–2 frames per second ￼ ￼.  Convert each frame to an image, run the image embedding model, and tag it with the video ID and timestamp.  You can either index each frame separately or aggregate (e.g. mean-pool).  This creates a vector index for video content.
+	4.	Vector Database: Insert all vectors into a local ANN index.  We recommend a small library like HNSWlib or FAISS.  For mobile/embedded or even browser-based prototypes, hnswlib (C++ with Python and WASM support) is ideal.  We set up an index (e.g. HNSW graph) over the embedding dimension (384 for text, 512–768 for images).  This allows fast nearest-neighbor queries.  (ObjectBox is another option: it supports storing float-vector fields with HNSW indices on mobile ￼.)
+	•	Example: In HNSWlib (Python), create Index(space='cosine', dim=384) and call index.add(embedding_vectors).  For FAISS, use faiss.IndexFlatL2 or faiss.IndexIVFFlat with Faiss’s Python bindings.
+	5.	Metadata storage: Alongside the index, maintain a simple key–value map (or database) mapping each vector ID to file metadata (filename, snippet/thumbnail, type, etc.).  This lets us retrieve the file to display when a vector is matched.
+
+Search Flow
+
+When the user submits a text query:
+	1.	Query Embedding: Run the text encoder on the query (after any prompt formatting).  This produces a query vector in the same space (384-d or shared space with CLIP).
+	2.	ANN Search: Use the vector database to find the top-N closest indexed vectors.  For example, run index.knn_query(query_vector, k=N) in HNSWlib (or faiss.search).  This returns the IDs of the nearest vectors and distances (similarity scores).
+	3.	Fetch Results: Look up each matched vector’s file metadata.  Collate results, noting if they came from a text chunk, an image, or a video frame.  If multiple chunks of the same document matched, you may combine them or list separately.  Similarly, for video frames, you can aggregate consecutive frames or simply point to the video.
+	4.	Ranking and Filtering: Optionally re-rank by scores or apply filters (e.g. file type, date).  Similarity scores (cosine or L2) can be shown as relevance.  Because all content shares the embedding space, results are naturally relevance-ranked across modalities.
+	5.	Result Presentation: Return the top-N hits to the UI.  The UI can display a mixed list (or grouped by type) of results: text snippets for document hits, thumbnails for images, and keyframe thumbnails for videos.  Each result should link to the file itself or a preview.
+
+A simplified flow diagram:
+
+[User Query (text)] 
+       ↓ (text encoder)
+[Query Vector] 
+       ↓ (ANN search in index)
+[Top-N Vector IDs] 
+       ↓
+[Fetch file metadata & previews] 
+       ↓
+[Return ranked results (text/image/video)]
+
+System Implementation
+
+Backend (Python)
+	•	Model Serving: We can host the embedding models in a Python backend (e.g. FastAPI).  For example, load HuggingFace models:
+
+from transformers import AutoModel, AutoTokenizer
+tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
+model = AutoModel.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
+
+Compute embeddings by tokenizing and mean-pooling ￼ ￼.  Similarly, load a CLIP processor for images.  For speed, convert models to ONNX and use ONNXRuntime if desired; [43] demonstrates converting all-MiniLM-L6-v2 for Android via ONNX ￼, which is analogous in backend (and can also speed up GPU inference).
+
+	•	Indexing: Use e.g. HNSWlib (via pip install hnswlib).  Create an index per modality or one unified index (if using a shared vector space like CLIP).  Insert vectors as described.  HNSWlib supports incremental updates, which is useful if adding files on the fly.
+	•	Database: Store file metadata (paths, previews) in a lightweight DB or even a JSON.  Alternatively use ObjectBox (Java/Kotlin on Android, or via its Dart/Flutter library) which can also index float vectors with HNSW ￼.
+	•	API: Expose endpoints such as /search?q=... that take text, compute query vector, perform ANN search, and return JSON results (id, score, snippet or thumbnail URL, etc.).
+
+Frontend (React/Next.js)
+	•	Embedding (optional): For a prototype, the frontend can simply call the Python backend for embeddings and search.  However, an alternative fully client-side approach is possible:
+	•	Use HuggingFace Transformers.js or TensorFlow.js to run the embedding model in the browser.  For example, the ONNX export of MiniLM can be loaded with ONNX.js.
+	•	Store the vector index locally (e.g. in IndexedDB) and run search with a WASM library.  A proof-of-concept is Vexvault, which “uses indexeddb as a backend and WebAssembly + HNSWlib for vector ANN search,” creating embeddings entirely client-side ￼ ￼.  This ensures full offline operation and privacy.  (Vexvault even supports sharing data across pages via an iframe.)
+For simplicity, we can start with a server-side embedding/search and optionally make it a Progressive Web App later.
+	•	UI Design: The interface should be simple and mobile-friendly:
+	•	A search bar at the top for the text query.
+	•	Results list: Each result shows an icon/thumbnail and snippet:
+	•	Text docs: Show a text snippet (with query terms highlighted) and file name.
+	•	Images: Show a thumbnail or scaled image, and perhaps the file name.
+	•	Videos: Show a keyframe thumbnail and timestamp (e.g. “Video.mp4 – 00:45”).
+	•	Ranking: Display the relevance score or a bar.  Higher-scoring items float to the top by default.
+	•	Filtering: Optionally allow tabs or checkboxes to filter by type (All/Text/Image/Video).
+	•	Preview: Clicking a result should open/preview the file.  For text/PDF, we can use a modal or new tab to show the document (e.g. a PDF embed or raw text).  For images, show a larger view.  For videos, play or scrub to the key frame.
+	•	Use a component library (e.g. Material-UI, Ant Design, or just CSS) to create responsive cards.
+
+UX best practices: load results incrementally if many, show a loading indicator during embedding/search, and allow clearing or new searches easily.  Keep paragraphs and text short for readability.
+
+Cross-Platform Considerations
+	•	Android (mobile): A similar setup can run fully on-device.  For example, the Android-Doc-QA app embedded all-MiniLM-L6-v2 in an Android library (via ONNXRuntime) and used ObjectBox for vector search ￼ ￼.  One could port our Python code to Kotlin (using ONNX and HNSW) or call a local server.  TensorFlow Lite also offers some text embedding models (e.g. Universal Sentence Encoder) but we prefer the quality of MiniLM/E5.  For images, TensorFlow Lite or PyTorch Mobile can run MobileCLIP on-device.
+	•	Browser/Web: As noted, client-side ML is possible with TF.js or ONNX.js, and IndexedDB/HNSWlib-WASM for vectors ￼.  Otherwise, a React web app can call the Python backend over HTTP.  Next.js can SSR the page and hydrate components.
+
+In summary, our design uses lightweight (tens of millions of parameters) open models for each modality and a fast ANN index (like HNSWlib) to enable offline semantic search.  The text and image/video models share a common embedding space (via CLIP or similar) so that a natural-language query retrieves the most relevant text, images, or videos.  This fully local approach preserves privacy and works without a cloud connection (after initial download).
+
+References
+	•	Use of embedding models (MobileCLIP, MiniLM, E5) for semantic search ￼ ￼ ￼ ￼.
+	•	On-device model deployment examples (MiniLM via ONNX on Android) ￼.
+	•	Video search pipeline (scene splitting, frame sampling, CLIP embedding) ￼ ￼.
+	•	Vector databases: HNSWlib for ANN search ￼ and Faiss for efficient similarity search ￼.  ObjectBox example on-device ANN ￼.
+	•	In-browser indexing example (IndexedDB + hnswlib WASM) ￼ ￼.
