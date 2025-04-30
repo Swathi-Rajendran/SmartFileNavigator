@@ -2,7 +2,7 @@ import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { saveAndProcessFile, getFileStream, deleteFile } from "./fileSystem";
-import { embedText } from "./embedding";
+import { embedText, generateFileEmbeddings } from "./embedding";
 import multer from "multer";
 import path from "path";
 import { searchQuerySchema } from "@shared/schema";
@@ -25,6 +25,7 @@ const upload = multer({
 
 // Create temp uploads directory
 import fs from 'fs';
+import fsPromises from 'fs/promises';
 import { promisify } from 'util';
 const mkdir = promisify(fs.mkdir);
 mkdir('temp-uploads', { recursive: true }).catch(console.error);
@@ -33,6 +34,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Health check endpoint
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok' });
+  });
+  
+  // Fix embeddings endpoint - regenerates embeddings for all files
+  app.post('/api/fix-embeddings', async (req, res) => {
+    try {
+      const files = await storage.getFiles();
+      
+      for (const file of files) {
+        try {
+          console.log(`Regenerating embeddings for file ${file.id}: ${file.filename}`);
+          
+          // First delete any existing embeddings
+          await storage.deleteEmbeddingsByFileId(file.id);
+          
+          if (file.fileType === 'document') {
+            // Extract text content
+            let content = [""];
+            try {
+              if (file.mimeType === 'text/plain') {
+                const fileContent = await fsPromises.readFile(file.filePath, 'utf-8');
+                content = [fileContent];
+              }
+              // Add more document types here as needed
+            } catch (error) {
+              console.error(`Error reading file content: ${error}`);
+              content = [`[Failed to extract content from ${file.filename}]`];
+            }
+            
+            // Generate embeddings
+            await generateFileEmbeddings(file.id, file.fileType, file.filePath, content);
+          } else {
+            // For images and videos
+            await generateFileEmbeddings(file.id, file.fileType, file.filePath);
+          }
+        } catch (error) {
+          console.error(`Error regenerating embeddings for file ${file.id}:`, error);
+        }
+      }
+      
+      res.json({ success: true, message: `Regenerated embeddings for ${files.length} files` });
+    } catch (error) {
+      console.error('Error fixing embeddings:', error);
+      res.status(500).json({ message: 'Failed to fix embeddings' });
+    }
   });
 
   // Count files by type for sidebar

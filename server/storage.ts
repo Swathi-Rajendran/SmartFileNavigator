@@ -199,18 +199,31 @@ export class MemStorage implements IStorage {
 
   // Helper methods
   private cosineSimilarity(a: number[], b: number[]): number {
+    // Normalize dimensions to the larger vector by zero-padding the smaller one
+    let vecA = a;
+    let vecB = b;
+    
     if (a.length !== b.length) {
-      throw new Error('Vectors must have the same dimensions');
+      console.warn(`Vector dimension mismatch: ${a.length} vs ${b.length}. Normalizing...`);
+      const maxLength = Math.max(a.length, b.length);
+      
+      if (a.length < maxLength) {
+        vecA = [...a, ...new Array(maxLength - a.length).fill(0)];
+      }
+      
+      if (b.length < maxLength) {
+        vecB = [...b, ...new Array(maxLength - b.length).fill(0)];
+      }
     }
     
     let dotProduct = 0;
     let normA = 0;
     let normB = 0;
     
-    for (let i = 0; i < a.length; i++) {
-      dotProduct += a[i] * b[i];
-      normA += a[i] * a[i];
-      normB += b[i] * b[i];
+    for (let i = 0; i < vecA.length; i++) {
+      dotProduct += vecA[i] * vecB[i];
+      normA += vecA[i] * vecA[i];
+      normB += vecB[i] * vecB[i];
     }
     
     if (normA === 0 || normB === 0) return 0;

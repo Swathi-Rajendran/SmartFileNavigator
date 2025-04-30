@@ -230,8 +230,8 @@ export async function embedImage(imagePath: string): Promise<number[]> {
 
 // Create a simple fallback embedding for images when Python is not available
 function createFallbackImageEmbedding(imagePath: string): number[] {
-  // Create a 512-dimension vector (matching a typical CLIP model output size)
-  const vector = new Array(512).fill(0);
+  // Create a 384-dimension vector (to match the text embedding size for compatibility)
+  const vector = new Array(384).fill(0);
   
   // Use the filename as a seed to generate pseudo-random values
   const seed = imagePath.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
@@ -322,6 +322,9 @@ export async function generateFileEmbeddings(
   content?: string[]
 ): Promise<void> {
   try {
+    // First, delete any existing embeddings for this file
+    await storage.deleteEmbeddingsByFileId(fileId);
+    
     if (fileType === 'document' && content) {
       // For documents, embed each content chunk separately
       for (let i = 0; i < content.length; i++) {
@@ -350,7 +353,7 @@ export async function generateFileEmbeddings(
       await storage.createEmbedding(embedding);
     } else if (fileType === 'video') {
       // TODO: Implement video frame extraction and embedding
-      // For now, we'll just create a placeholder embedding
+      // For now, we'll just create a placeholder embedding with same dimensions as others
       const embedding: InsertEmbedding = {
         fileId,
         vector: JSON.stringify(new Array(384).fill(0)), // Placeholder vector

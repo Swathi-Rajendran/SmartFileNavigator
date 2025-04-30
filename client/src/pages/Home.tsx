@@ -5,6 +5,7 @@ import SearchBar from '@/components/SearchBar';
 import FilterTabs from '@/components/FilterTabs';
 import SearchResults from '@/components/SearchResults';
 import IndexingModal from '@/components/IndexingModal';
+import FixEmbeddingsButton from '@/components/FixEmbeddingsButton';
 import { SearchResult, FileType, UploadProgressInfo, UploadStatus, FileCounts } from '@/lib/types';
 import { apiRequest } from '@/lib/queryClient';
 import { useSearch } from '@/hooks/useSearch';
@@ -82,11 +83,18 @@ export default function Home() {
           isLoading={isLoading}
         />
 
-        <FilterTabs 
-          activeFilter={activeFilter}
-          setActiveFilter={handleFilterChange}
-          counts={fileCounts}
-        />
+        <div className="flex items-center justify-between mt-4">
+          <FilterTabs 
+            activeFilter={activeFilter}
+            setActiveFilter={handleFilterChange}
+            counts={fileCounts}
+          />
+          
+          {/* Tools section */}
+          <div className="flex-shrink-0">
+            <FixEmbeddingsButton />
+          </div>
+        </div>
       </div>
 
       {/* Results area */}
