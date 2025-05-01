@@ -1,4 +1,12 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  text,
+  serial,
+  integer,
+  boolean,
+  timestamp,
+  jsonb,
+} from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -22,7 +30,9 @@ export const files = pgTable("files", {
 
 export const embeddings = pgTable("embeddings", {
   id: serial("id").primaryKey(),
-  fileId: integer("file_id").notNull().references(() => files.id),
+  fileId: integer("file_id")
+    .notNull()
+    .references(() => files.id),
   vector: text("vector").notNull(), // Store vector as serialized string
   chunkText: text("chunk_text"), // For text chunks to provide context
   chunkOffset: integer("chunk_offset"), // Position in document for text files
@@ -36,13 +46,13 @@ export const insertUserSchema = createInsertSchema(users).pick({
 });
 
 export const insertFileSchema = createInsertSchema(files).omit({
-  id: true, 
+  id: true,
   createdAt: true,
-  modifiedAt: true
+  modifiedAt: true,
 });
 
 export const insertEmbeddingSchema = createInsertSchema(embeddings).omit({
-  id: true
+  id: true,
 });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;

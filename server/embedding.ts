@@ -1,9 +1,9 @@
-import { spawn } from 'child_process';
-import path from 'path';
-import fs from 'fs/promises';
-import os from 'os';
-import { storage } from './storage';
-import { InsertEmbedding } from '@shared/schema';
+import { spawn, exec } from "child_process";
+import path from "path";
+import fs from "fs/promises";
+import os from "os";
+import { storage } from "./storage";
+import { InsertEmbedding } from "@shared/schema";
 
 const PYTHON_SCRIPT = `
 import sys
@@ -13,6 +13,7 @@ from sentence_transformers import SentenceTransformer
 from PIL import Image
 import torch
 from transformers import CLIPProcessor, CLIPModel
+import torch.nn.functional as F
 
 # Load text embedding model
 text_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
@@ -36,10 +37,10 @@ def embed_image(image_path):
         # Generate embeddings
         with torch.no_grad():
             image_features = clip_model.get_image_features(**inputs)
+            image_features = F.normalize(image_features, p=2, dim=-1)
             
         # Normalize and convert to list
-        image_embedding = image_features[0].numpy()
-        image_embedding = image_embedding / np.linalg.norm(image_embedding)
+        image_embedding = image_features[0].cpu().numpy()
         return image_embedding.tolist()
     except Exception as e:
         print(f"Error embedding image: {str(e)}", file=sys.stderr)
@@ -104,28 +105,28 @@ let pythonScriptPath: string | null = null;
 
 async function initPythonProcess() {
   if (pythonProcess) return;
-  
+
   try {
     // Create a temporary script file
-    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'embedding-'));
-    pythonScriptPath = path.join(tmpDir, 'embedding.py');
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "embedding-"));
+    pythonScriptPath = path.join(tmpDir, "embedding.py");
     await fs.writeFile(pythonScriptPath, PYTHON_SCRIPT);
-    
+
     // Start Python process
-    pythonProcess = spawn('python3', [pythonScriptPath]);
-    
-    pythonProcess.stderr?.on('data', (data) => {
+    pythonProcess = spawn("python3", [pythonScriptPath]);
+
+    pythonProcess.stderr?.on("data", (data) => {
       console.error(`Python error: ${data}`);
     });
-    
-    pythonProcess.on('close', (code) => {
+
+    pythonProcess.on("close", (code) => {
       console.log(`Python process exited with code ${code}`);
       pythonProcess = null;
     });
-    
-    console.log('Python embedding process started successfully');
+
+    console.log("Python embedding process started successfully");
   } catch (error) {
-    console.error('Failed to initialize Python process:', error);
+    console.error("Failed to initialize Python process:", error);
     pythonProcess = null;
   }
 }
@@ -134,25 +135,27 @@ async function initPythonProcess() {
 async function runEmbeddingRequest(input: any): Promise<any> {
   return new Promise((resolve, reject) => {
     // Create a new process for each request
-    const process = spawn('python3', ['-c', PYTHON_SCRIPT]);
-    
-    let output = '';
-    let errorOutput = '';
-    
-    process.stdout.on('data', (data) => {
+    const process = spawn("python3", ["-c", PYTHON_SCRIPT]);
+
+    let output = "";
+    let errorOutput = "";
+
+    process.stdout.on("data", (data) => {
       output += data.toString();
     });
-    
-    process.stderr.on('data', (data) => {
+
+    process.stderr.on("data", (data) => {
       errorOutput += data.toString();
       console.error(`Python stderr: ${data}`);
     });
-    
-    process.on('close', (code) => {
+
+    process.on("close", (code) => {
       if (code !== 0) {
-        return reject(new Error(`Python process exited with code ${code}: ${errorOutput}`));
+        return reject(
+          new Error(`Python process exited with code ${code}: ${errorOutput}`)
+        );
       }
-      
+
       try {
         const result = JSON.parse(output);
         resolve(result);
@@ -160,207 +163,233 @@ async function runEmbeddingRequest(input: any): Promise<any> {
         reject(new Error(`Failed to parse Python output: ${error}`));
       }
     });
-    
+
     // Send input to the Python process
     process.stdin.write(JSON.stringify(input));
     process.stdin.end();
   });
 }
 
+// Utility to enforce 384-dimension vectors
+function enforceVectorDimension(vec: number[], dim = 384): number[] {
+  if (!Array.isArray(vec)) return new Array(dim).fill(0);
+  if (vec.length === dim) return vec;
+  if (vec.length > dim) return vec.slice(0, dim);
+  // pad with zeros
+  return vec.concat(new Array(dim - vec.length).fill(0));
+}
+
+// Replace fallback embedding logic with real implementation
 export async function embedText(text: string): Promise<number[]> {
+  console.log(`Embedding text: ${text}`);
   try {
     const result = await runEmbeddingRequest({
-      type: 'text',
-      content: text
+      type: "text",
+      content: text,
     });
-    
     if (!result.success) {
-      console.warn('Failed to embed text with Python, using fallback embedding');
-      return createFallbackEmbedding(text);
+      throw new Error("Failed to embed text with Python");
     }
-    
-    return result.embedding;
+    console.log(`Generated text embedding`);
+    return enforceVectorDimension(result.embedding);
   } catch (error) {
-    console.warn('Error in Python embedding, using fallback embedding:', error);
-    return createFallbackEmbedding(text);
+    console.error("Error in Python embedding:", error);
+    throw error;
   }
 }
 
-// Create a simple fallback embedding when Python is not available
-function createFallbackEmbedding(text: string): number[] {
-  // Create a 384-dimension vector (matching MiniLM-L6-v2 output size)
-  const vector = new Array(384).fill(0);
-  
-  // Simple hashing of text to populate some values
-  // This is NOT a real embedding, just a deterministic placeholder
-  // that won't crash the application
-  const seed = text.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  const rng = (n: number) => ((seed * (n + 1)) % 997) / 997;
-  
-  // Fill about 20% of the vector with deterministic values based on text
-  for (let i = 0; i < vector.length; i++) {
-    if (rng(i) < 0.2) {
-      vector[i] = (rng(i + 100) * 2) - 1; // between -1 and 1
-    }
-  }
-  
-  // Normalize the vector
-  const norm = Math.sqrt(vector.reduce((sum, val) => sum + val * val, 0)) || 1;
-  return vector.map(val => val / norm);
-}
-
+// Replace fallback embedding logic with real implementation
 export async function embedImage(imagePath: string): Promise<number[]> {
+  console.log(`Embedding image: ${imagePath}`);
   try {
     const result = await runEmbeddingRequest({
-      type: 'image',
-      path: imagePath
+      type: "image",
+      path: imagePath,
     });
-    
     if (!result.success) {
-      console.warn('Failed to embed image with Python, using fallback embedding');
-      return createFallbackImageEmbedding(imagePath);
+      throw new Error("Failed to embed image with Python");
     }
-    
-    return result.embedding;
+    console.log(`Generated image embedding`);
+    return enforceVectorDimension(result.embedding);
   } catch (error) {
-    console.warn('Error in Python image embedding, using fallback embedding:', error);
-    return createFallbackImageEmbedding(imagePath);
+    console.error("Error in Python image embedding:", error);
+    throw error;
   }
 }
 
-// Create a simple fallback embedding for images when Python is not available
-function createFallbackImageEmbedding(imagePath: string): number[] {
-  // Create a 384-dimension vector (to match the text embedding size for compatibility)
-  const vector = new Array(384).fill(0);
-  
-  // Use the filename as a seed to generate pseudo-random values
-  const seed = imagePath.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  const rng = (n: number) => ((seed * (n + 1)) % 997) / 997;
-  
-  // Fill about 20% of the vector with deterministic values based on the path
-  for (let i = 0; i < vector.length; i++) {
-    if (rng(i) < 0.2) {
-      vector[i] = (rng(i + 100) * 2) - 1; // between -1 and 1
-    }
-  }
-  
-  // Normalize the vector
-  const norm = Math.sqrt(vector.reduce((sum, val) => sum + val * val, 0)) || 1;
-  return vector.map(val => val / norm);
-}
-
-export async function embedBatch(items: Array<{
-  type: 'text' | 'image', 
-  content?: string, 
-  path?: string, 
-  index: number
-}>): Promise<Array<{
-  index: number, 
-  embedding: number[] | null, 
-  success: boolean
-}>> {
+export async function embedBatch(
+  items: Array<{
+    type: "text" | "image";
+    content?: string;
+    path?: string;
+    index: number;
+  }>
+): Promise<
+  Array<{
+    index: number;
+    embedding: number[] | null;
+    success: boolean;
+  }>
+> {
   try {
     const result = await runEmbeddingRequest({
-      type: 'batch',
-      items
+      type: "batch",
+      items,
     });
-    
     if (!result.success) {
-      console.warn('Failed to process batch embedding with Python, using fallback');
+      console.warn(
+        "Failed to process batch embedding with Python, using fallback"
+      );
       return createFallbackBatchEmbedding(items);
     }
-    
-    return result.embeddings;
+    // Enforce dimension for each embedding
+    return result.embeddings.map((e: any) => ({
+      ...e,
+      embedding: e.embedding ? enforceVectorDimension(e.embedding) : null,
+    }));
   } catch (error) {
-    console.warn('Error in Python batch embedding, using fallback:', error);
+    console.warn("Error in Python batch embedding, using fallback:", error);
     return createFallbackBatchEmbedding(items);
   }
 }
 
 // Create fallback embeddings for a batch of items
-function createFallbackBatchEmbedding(items: Array<{
-  type: 'text' | 'image', 
-  content?: string, 
-  path?: string, 
-  index: number
-}>): Array<{
-  index: number, 
-  embedding: number[] | null, 
-  success: boolean
+function createFallbackBatchEmbedding(
+  items: Array<{
+    type: "text" | "image";
+    content?: string;
+    path?: string;
+    index: number;
+  }>
+): Array<{
+  index: number;
+  embedding: number[] | null;
+  success: boolean;
 }> {
-  return items.map(item => {
+  return items.map((item) => {
     let embedding: number[] | null = null;
-    
+
     try {
-      if (item.type === 'text' && item.content) {
+      if (item.type === "text" && item.content) {
         embedding = createFallbackEmbedding(item.content);
-      } else if (item.type === 'image' && item.path) {
+      } else if (item.type === "image" && item.path) {
         embedding = createFallbackImageEmbedding(item.path);
       }
-      
+
       return {
         index: item.index,
         embedding,
-        success: embedding !== null
+        success: embedding !== null,
       };
     } catch (error) {
-      console.error('Error creating fallback embedding:', error);
+      console.error("Error creating fallback embedding:", error);
       return {
         index: item.index,
         embedding: null,
-        success: false
+        success: false,
       };
     }
   });
 }
 
-// Function to create embeddings for a file
+// Helper to extract key frames from a video using ffmpeg
+async function extractKeyFrames(
+  videoPath: string,
+  outputDir: string,
+  maxFrames = 5
+): Promise<string[]> {
+  // Ensure output directory exists
+  await fs.mkdir(outputDir, { recursive: true });
+  // Extract up to maxFrames key frames as JPEGs
+  // -vf "select=eq(pict_type\,I)" selects I-frames (key frames)
+  // -vsync vfr keeps variable frame rate
+  // -q:v 2 gives good quality
+  // -frames:v limits the number of frames
+  const framePattern = path.join(outputDir, "frame-%03d.jpg");
+  const cmd = `ffmpeg -hide_banner -loglevel error -i "${videoPath}" -vf "select=eq(pict_type\\,I)" -vsync vfr -q:v 2 -frames:v ${maxFrames} "${framePattern}"`;
+  await new Promise((resolve, reject) => {
+    exec(cmd, (err) => (err ? reject(err) : resolve(null)));
+  });
+  // List the extracted frames
+  const files = await fs.readdir(outputDir);
+  return files
+    .filter((f) => f.endsWith(".jpg"))
+    .map((f) => path.join(outputDir, f));
+}
+
 export async function generateFileEmbeddings(
-  fileId: number, 
-  fileType: string, 
-  filePath: string, 
+  fileId: number,
+  fileType: string,
+  filePath: string,
   content?: string[]
 ): Promise<void> {
   try {
     // First, delete any existing embeddings for this file
     await storage.deleteEmbeddingsByFileId(fileId);
-    
-    if (fileType === 'document' && content) {
+
+    if (fileType === "document" && content) {
       // For documents, embed each content chunk separately
       for (let i = 0; i < content.length; i++) {
         const vector = await embedText(content[i]);
-        
+
         const embedding: InsertEmbedding = {
           fileId,
           vector: JSON.stringify(vector),
           chunkText: content[i],
           chunkOffset: i,
-          model: 'all-MiniLM-L6-v2'
+          model: "all-MiniLM-L6-v2",
         };
-        
+
         await storage.createEmbedding(embedding);
       }
-    } else if (fileType === 'image') {
+    } else if (fileType === "image") {
       // For images, embed the entire image
       const vector = await embedImage(filePath);
-      
+
       const embedding: InsertEmbedding = {
         fileId,
         vector: JSON.stringify(vector),
-        model: 'clip-vit-base'
+        model: "clip-vit-base",
       };
-      
+
       await storage.createEmbedding(embedding);
-    } else if (fileType === 'video') {
-      // TODO: Implement video frame extraction and embedding
-      // For now, we'll just create a placeholder embedding with same dimensions as others
-      const embedding: InsertEmbedding = {
-        fileId,
-        vector: JSON.stringify(new Array(384).fill(0)), // Placeholder vector
-        model: 'clip-vit-base'
-      };
-      
-      await storage.createEmbedding(embedding);
+    } else if (fileType === "video") {
+      // Extract key frames and embed each frame
+      const tempDir = path.join(
+        os.tmpdir(),
+        `video-frames-${fileId}-${Date.now()}`
+      );
+      let framePaths: string[] = [];
+      try {
+        framePaths = await extractKeyFrames(filePath, tempDir, 5); // up to 5 key frames
+      } catch (err) {
+        console.error("Failed to extract video frames:", err);
+      }
+      if (framePaths.length === 0) {
+        // fallback: store a zero vector
+        const embedding: InsertEmbedding = {
+          fileId,
+          vector: JSON.stringify(new Array(384).fill(0)),
+          model: "clip-vit-base",
+        };
+        await storage.createEmbedding(embedding);
+      } else {
+        for (let i = 0; i < framePaths.length; i++) {
+          const vector = await embedImage(framePaths[i]);
+          const embedding: InsertEmbedding = {
+            fileId,
+            vector: JSON.stringify(vector),
+            model: "clip-vit-base",
+            chunkOffset: i,
+            chunkText: framePaths[i], // store frame path for debug
+          };
+          await storage.createEmbedding(embedding);
+        }
+      }
+      // Clean up temp frames
+      try {
+        await fs.rm(tempDir, { recursive: true, force: true });
+      } catch {}
     }
   } catch (error) {
     console.error(`Error generating embeddings for file ${fileId}:`, error);
